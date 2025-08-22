@@ -1,23 +1,57 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { SimpleLineChart } from "../components/charts/SimpleLineChart";
 import { SimpleBarChart } from "../components/charts/SimpleBarChart";
 import { SimpleDonutChart } from "../components/charts/SimpleDonutChart";
+import { getDashboardData } from "../lib/data";
+import type { DashboardData } from "../lib/types";
 
 export default function Dashboard() {
-  const salesLabels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun"]; // placeholder labels
+  const [data, setData] = useState<DashboardData | null>(null);
+  const brl: (n: number) => string = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  useEffect(() => {
+    let mounted = true;
+    getDashboardData().then((d) => {
+      if (mounted) setData(d);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  if (!data) {
+    return (
+      <section className="dashboard">
+        <div className="metrics">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className={`metric metric-${i}`}>
+              <div className="metric-title">Carregando…</div>
+              <div className="metric-row">
+                <div className="metric-value">…</div>
+                <div className={`metric-delta`}>…</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  const metricItems = [
+    { title: "OS Abertas", value: data.metrics.osAbertas, delta: "+8.3%", type: "number" as const },
+    { title: "OS Concluídas", value: data.metrics.osConcluidas, delta: "+3.1%", type: "number" as const },
+    { title: "Faturamento (R$)", value: data.metrics.faturamento, delta: "+12.4%", type: "money" as const },
+    { title: "Ticket Médio (R$)", value: data.metrics.ticketMedio, delta: "-1.8%", type: "money" as const },
+  ];
+
   return (
     <section className="dashboard">
       <div className="metrics">
-        {[
-          { title: "Views", value: 7265, delta: "+11.01%" },
-          { title: "Visits", value: 3671, delta: "-0.03%" },
-          { title: "New Users", value: 156, delta: "+15.03%" },
-          { title: "Active Users", value: 2318, delta: "+6.08%" },
-        ].map((m, i) => (
+        {metricItems.map((m, i) => (
           <div key={i} className={`metric metric-${i + 1}`}>
             <div className="metric-title">{m.title}</div>
             <div className="metric-row">
-              <div className="metric-value">{m.value.toLocaleString()}</div>
+              <div className="metric-value">
+                {m.type === "money" ? brl(m.value) : m.value.toLocaleString("pt-BR")}
+              </div>
               <div className={`metric-delta ${m.delta.startsWith("-") ? "down" : "up"}`}>{m.delta}</div>
             </div>
           </div>
@@ -27,18 +61,18 @@ export default function Dashboard() {
       <div className="charts-grid">
         <div className="card card-lg">
           <div className="card-head">
-            <div className="card-title">Total Users</div>
+            <div className="card-title">OS por Mês</div>
             <div className="card-tabs">
-              <button className="tab active">This year</button>
-              <button className="tab">Last year</button>
+              <button className="tab active">Este ano</button>
+              <button className="tab">Ano passado</button>
             </div>
           </div>
-          <SimpleLineChart title="" labels={salesLabels} values={[8, 12, 10, 18, 22, 24]} lineColor="#111827" />
+          <SimpleLineChart title="" labels={data.osPorMes.labels} values={data.osPorMes.values} lineColor="#111827" width={900} height={200} />
         </div>
         <div className="card">
-          <div className="card-title">Traffic by Website</div>
+          <div className="card-title">Serviços mais realizados</div>
           <div className="list-lines">
-            {["Google", "YouTube", "Instagram", "Pinterest", "Facebook", "Twitter"].map((n, i) => (
+            {data.topServicos.map((n, i) => (
               <div key={i} className="line-item">
                 <span>{n}</span>
                 <span className="line-bars">
@@ -51,12 +85,12 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="card">
-          <div className="card-title">Traffic by Device</div>
-          <SimpleBarChart title="" labels={["Linux", "Mac", "iOS", "Windows", "Android", "Other"]} values={[12, 18, 26, 28, 11, 9]} barColor="#6366f1" />
+          <div className="card-title">OS por Status</div>
+          <SimpleBarChart title="" labels={data.status.labels} values={data.status.values} barColor="#6366f1" height={260} barWidth={36} gap={20} labelAngle={-45} labelFontSize={10} fitToWidth />
         </div>
         <div className="card">
-          <div className="card-title">Traffic by Location</div>
-          <SimpleDonutChart title="" labels={["United States", "Canada", "Mexico", "Other"]} values={[52, 23, 14, 11]} colors={["#3b82f6", "#10b981", "#f59e0b", "#9ca3af"]} />
+          <div className="card-title">Origem dos Clientes</div>
+          <SimpleDonutChart title="" labels={data.origemClientes.labels} values={data.origemClientes.values} colors={["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#9ca3af"]} size={220} radius={80} />
         </div>
       </div>
     </section>

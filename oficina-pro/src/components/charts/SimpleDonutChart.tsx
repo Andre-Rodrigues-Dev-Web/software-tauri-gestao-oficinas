@@ -1,8 +1,6 @@
 import React from "react";
 
-export function SimpleDonutChart({ title, values, colors, labels }: { title: string; values: number[]; colors: string[]; labels: string[] }) {
-  const size = 180;
-  const radius = 70;
+export function SimpleDonutChart({ title, values, colors, labels, size = 180, radius = 70 }: { title: string; values: number[]; colors: string[]; labels: string[]; size?: number; radius?: number }) {
   const cx = size / 2;
   const cy = size / 2;
   const total = values.reduce((a, b) => a + b, 0) || 1;

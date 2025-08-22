@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::error::Error;
 use tauri::Manager; // for app.path()
 use uuid::Uuid;
+use chrono::Datelike; // bring month0() into scope
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -252,6 +253,163 @@ fn clients_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+// ====== Dashboard summary API ======
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChartOut {
+    labels: Vec<String>,
+    values: Vec<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetricsOut {
+    os_abertas: i64,
+    os_concluidas: i64,
+    faturamento: f64,
+    ticket_medio: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DashboardOut {
+    metrics: MetricsOut,
+    os_por_mes: ChartOut,
+    status: ChartOut,
+    origem_clientes: ChartOut,
+    top_servicos: Vec<String>,
+}
+
+#[tauri::command]
+fn dashboard_summary(app: tauri::AppHandle) -> Result<DashboardOut, String> {
+    with_conn(&app, |conn| {
+        // OS abertas (aberta / em_andamento / aguardando_pecas)
+        let os_abertas: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM orders WHERE status IN ('aberta','em_andamento','aguardando_pecas')",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        // OS concluidas
+        let os_concluidas: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM orders WHERE status = 'concluida'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        // Faturamento: soma dos itens de servico + produtos
+        let serv_total: f64 = conn.query_row(
+            "SELECT IFNULL(SUM(total),0) FROM order_service_items",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0.0);
+        let prod_total: f64 = conn.query_row(
+            "SELECT IFNULL(SUM(total),0) FROM order_product_items",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0.0);
+        let faturamento = serv_total + prod_total;
+
+        // Ticket médio (evitar divisao por zero)
+        let total_os: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM orders",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        let ticket_medio = if total_os > 0 { faturamento / (total_os as f64) } else { 0.0 };
+
+        // OS por mes (ultimos 6 meses)
+        let mut stmt = conn.prepare(
+            "SELECT strftime('%m', created_at) AS m, COUNT(*)
+             FROM orders
+             WHERE date(created_at) >= date('now','-5 months')
+             GROUP BY m
+             ORDER BY m"
+        )?;
+        let mut month_counts: Vec<(String, i64)> = Vec::new();
+        let rows = stmt.query_map([], |row| {
+            let m: String = row.get(0)?;
+            let c: i64 = row.get(1)?;
+            Ok((m, c))
+        })?;
+        for r in rows { month_counts.push(r?); }
+        let all_months = vec!["01","02","03","04","05","06","07","08","09","10","11","12"]; // labels fixos
+        let pt_labels = vec!["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]; // nomes
+        let mut labels = Vec::new();
+        let mut values = Vec::new();
+        // Pega os ultimos 6 meses baseados em mes atual
+        let now = chrono::Local::now();
+        for i in (0..6).rev() {
+            let dt = now - chrono::Duration::days(30 * i as i64);
+            let m_idx = (dt.month0()) as usize; // 0..11
+            let mon_num = format!("{:02}", m_idx + 1);
+            labels.push(pt_labels[m_idx].to_string());
+            let v = month_counts.iter().find(|(mm, _)| *mm == mon_num).map(|(_, c)| *c).unwrap_or(0);
+            values.push(v);
+        }
+        let os_por_mes = ChartOut { labels, values };
+
+        // Status breakdown
+        let mut stmt = conn.prepare(
+            "SELECT status, COUNT(*) FROM orders GROUP BY status ORDER BY status"
+        )?;
+        let mut st_labels: Vec<String> = Vec::new();
+        let mut st_values: Vec<i64> = Vec::new();
+        let rows = stmt.query_map([], |row| {
+            let s: String = row.get(0)?;
+            let c: i64 = row.get(1)?;
+            Ok((s, c))
+        })?;
+        for r in rows {
+            let (s, c) = r?;
+            st_labels.push(s);
+            st_values.push(c);
+        }
+        let status = ChartOut { labels: st_labels, values: st_values };
+
+        // Origem dos clientes (stub - sem coluna dedicada)
+        let origem_clientes = ChartOut {
+            labels: vec!["Indicação".into(), "Google".into(), "Redes Sociais".into(), "Passantes".into(), "Outros".into()],
+            values: vec![38, 24, 18, 12, 8],
+        };
+
+        // Top serviços por quantidade executada
+        let mut stmt = conn.prepare(
+            "SELECT s.name, SUM(osi.quantity) AS qty
+             FROM order_service_items osi
+             JOIN services s ON s.id = osi.service_id
+             GROUP BY osi.service_id
+             ORDER BY qty DESC
+             LIMIT 6"
+        )?;
+        let mut top_servicos: Vec<String> = Vec::new();
+        let rows = stmt.query_map([], |row| {
+            let name: String = row.get(0)?;
+            Ok(name)
+        })?;
+        for r in rows { top_servicos.push(r?); }
+        if top_servicos.is_empty() {
+            top_servicos = vec![
+                "Troca de óleo".into(),
+                "Revisão".into(),
+                "Alinhamento/balanceamento".into(),
+                "Freios".into(),
+                "Suspensão".into(),
+                "Elétrica".into(),
+            ];
+        }
+
+        Ok(DashboardOut {
+            metrics: MetricsOut { os_abertas, os_concluidas, faturamento, ticket_medio },
+            os_por_mes,
+            status,
+            origem_clientes,
+            top_servicos,
+        })
+    })
+    .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -266,7 +424,8 @@ pub fn run() {
             clients_create,
             clients_get,
             clients_update,
-            clients_delete
+            clients_delete,
+            dashboard_summary
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

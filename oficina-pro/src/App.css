@@ -132,13 +132,16 @@ button {
 .layout { display: flex; min-height: 100vh; background: var(--bg); color: var(--text); }
 
 /* Left Sidebar */
-.sidebar { width: 240px; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.sidebar { width: 238px; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
 .brand { padding: 20px 16px; font-weight: 700; font-size: 18px; }
 .nav-group { padding: 8px 8px 12px; }
 .nav-heading { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #9ca3af; padding: 8px 8px; }
-.nav-item { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; color: #4b5563; background: transparent; border: none; }
+.nav-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px; color: #4b5563; background: transparent; border: none; }
 .nav-item:hover { background: #f3f4f6; }
 .nav-item.active { background: #f3f4f6; color: #111827; }
+
+/* Icon in sidebar links */
+.nav-icon { width: 18px; height: 18px; flex: 0 0 auto; }
 
 /* Right panel */
 .rightbar { width: 300px; background: #fff; border-left: 1px solid var(--line); padding: 16px; overflow-y: auto; }
@@ -162,6 +165,7 @@ button {
 /* Main */
 .main { display: grid; grid-template-columns: 1fr 300px; }
 /* The rightbar sits outside .main in markup; this grid helps content max widths on large screens */
+.main.full { grid-template-columns: 1fr; }
 
 .dashboard { padding: 20px; }
 
@@ -205,6 +209,19 @@ button {
   .sidebar { display: none; }
   .topbar { padding: 0 12px; }
   .dashboard { padding: 12px; }
+}
+
+/* Layout safeguards for wider screens */
+@media (min-width: 1024px) {
+  .content-wrap { min-width: 960px; }
+}
+
+/* Responsive sidebar widths */
+@media (min-width: 1280px) and (max-width: 1440px) {
+  .sidebar { width: 238px; }
+}
+@media (min-width: 1600px) {
+  .sidebar { width: 238px; }
 }
 
 /* Dark mode adjustments */
